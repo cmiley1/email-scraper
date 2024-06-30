@@ -2,6 +2,9 @@ const express = require("express");
 const axios = require("axios");
 const cheerio = require("cheerio");
 const cors = require("cors");
+const path = require("path");
+const sqlite3 = require("sqlite3").verbose();
+
 const app = express();
 const PORT = 5003;
 
@@ -9,25 +12,58 @@ require("dotenv").config();
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
-app.use(express.json());
+const dbPath = path.resolve(__dirname, "database.sqlite");
+const db = new sqlite3.Database(dbPath, (err) => {
+  if (err) {
+    console.error("Error opening database", err.message);
+  } else {
+    console.log("Connected to the SQLite database.");
+    db.run(`CREATE TABLE IF NOT EXISTS localStorage (
+      key TEXT PRIMARY KEY,
+      email TEXT,
+      projectName TEXT,
+      page INTEGER
+    )`);
+  }
+});
 
-// Configure CORS options
-const corsOptions = {
-  origin: "http://localhost:3000", // Allow requests from this origin
-  methods: ["GET", "POST", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"], // Allow these methods
-  allowedHeaders: ["Content-Type", "Authorization"], // Allow these headers
-  optionsSuccessStatus: 200, // Some legacy browsers choke on 204
+const setItem = (key, email, projectName, page) => {
+  db.run(
+    `INSERT OR REPLACE INTO localStorage (key, email, projectName, page) VALUES (?, ?, ?, ?)`,
+    [key, email, projectName, page],
+    (err) => {
+      if (err) {
+        console.error("Error setting item", err.message);
+      }
+    }
+  );
 };
 
-// Apply CORS middleware
-app.use(cors(corsOptions));
+const getItems = (offset, limit, callback) => {
+  db.all(
+    `SELECT email, projectName, page FROM localStorage LIMIT ? OFFSET ?`,
+    [limit, offset],
+    (err, rows) => {
+      if (err) {
+        console.error("Error getting items", err.message);
+        callback([]);
+      } else {
+        callback(rows);
+      }
+    }
+  );
+};
 
-// Handle preflight requests
-app.options("*", cors(corsOptions));
+const resetStorage = () => {
+  db.run(`DELETE FROM localStorage`, (err) => {
+    if (err) {
+      console.error("Error resetting storage", err.message);
+    }
+  });
+};
 
 const fetchDependentsFromPage = async (url) => {
   try {
-    console.log(`Fetching dependents from: ${url}`);
     const { data } = await axios.get(url, {
       headers: {
         Accept: "text/html",
@@ -49,11 +85,8 @@ const fetchDependentsFromPage = async (url) => {
       }
     });
 
-    console.log(`Found dependents: ${dependents.join(", ")}`);
-
     // Find the next page link
     const nextPageLink = $("a.next_page").attr("href");
-    console.log(`Next page link: ${nextPageLink}`);
 
     return { dependents, nextPageLink };
   } catch (error) {
@@ -73,13 +106,11 @@ const fetchAllDependents = async (owner, repo) => {
     url = nextPageLink ? `https://github.com${nextPageLink}` : null;
   }
 
-  console.log(`All dependents: ${allDependents.join(", ")}`);
   return allDependents;
 };
 
 const fetchContributors = async (owner, repo) => {
   try {
-    console.log(`Fetching contributors for: ${owner}/${repo}`);
     const { data } = await axios.get(
       `https://api.github.com/repos/${owner}/${repo}/contributors`,
       {
@@ -97,9 +128,6 @@ const fetchContributors = async (owner, repo) => {
 
 const fetchCommitEmails = async (owner, repo, contributor) => {
   try {
-    console.log(
-      `Fetching commits for: ${owner}/${repo}, contributor: ${contributor}`
-    );
     const { data } = await axios.get(
       `https://api.github.com/repos/${owner}/${repo}/commits?author=${contributor}`,
       {
@@ -118,7 +146,6 @@ const fetchCommitEmails = async (owner, repo, contributor) => {
 
 const fetchPublicEmail = async (username) => {
   try {
-    console.log(`Fetching public email for user: ${username}`);
     const { data } = await axios.get(
       `https://api.github.com/users/${username}`,
       {
@@ -133,6 +160,9 @@ const fetchPublicEmail = async (username) => {
     throw error;
   }
 };
+
+app.use(express.json());
+app.use(cors());
 
 app.post("/fetch_dependents_emails", async (req, res) => {
   const { owner, repo } = req.body;
@@ -153,20 +183,49 @@ app.post("/fetch_dependents_emails", async (req, res) => {
         );
         const publicEmail = await fetchPublicEmail(contributor.login);
 
-        allEmails = [...allEmails, ...commitEmails];
+        allEmails = [
+          ...allEmails,
+          ...commitEmails.map((email) => ({
+            email,
+            projectName: depRepo,
+          })),
+        ];
         if (publicEmail) {
-          allEmails.push(publicEmail);
+          allEmails.push({ email: publicEmail, projectName: depRepo });
         }
       }
     }
 
-    res.json({ emails: [...new Set(allEmails)] });
+    // Remove duplicate emails
+    const uniqueEmails = Array.from(new Set(allEmails.map((e) => e.email))).map(
+      (email) => {
+        return allEmails.find((e) => e.email === email);
+      }
+    );
+
+    // Save emails to the database
+    uniqueEmails.forEach((emailObj, index) => {
+      const key = `${emailObj.email}_${emailObj.projectName}_${index}`;
+      setItem(key, emailObj.email, emailObj.projectName, 1); // Assuming page as 1 for simplicity
+    });
+
+    res.json({ emails: uniqueEmails });
   } catch (error) {
     console.error("Error fetching dependent repositories' emails:", error);
     res
       .status(500)
       .json({ message: "Failed to fetch dependent repositories' emails" });
   }
+});
+
+app.get("/emails", (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const offset = (page - 1) * limit;
+
+  getItems(offset, limit, (items) => {
+    res.json({ emails: items });
+  });
 });
 
 app.listen(PORT, () => {

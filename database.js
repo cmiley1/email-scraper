@@ -8,16 +8,18 @@ const db = new sqlite3.Database(dbPath, (err) => {
   } else {
     console.log("Connected to the SQLite database.");
     db.run(`CREATE TABLE IF NOT EXISTS localStorage (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )`);
+      key TEXT PRIMARY KEY,
+      email TEXT,
+      projectName TEXT,
+      page INTEGER
+    )`);
   }
 });
 
-const setItem = (key, value) => {
+const setItem = (key, email, projectName, page) => {
   db.run(
-    `INSERT OR REPLACE INTO localStorage (key, value) VALUES (?, ?)`,
-    [key, value],
+    `INSERT OR REPLACE INTO localStorage (key, email, projectName, page) VALUES (?, ?, ?, ?)`,
+    [key, email, projectName, page],
     (err) => {
       if (err) {
         console.error("Error setting item", err.message);
@@ -26,15 +28,19 @@ const setItem = (key, value) => {
   );
 };
 
-const getItem = (key, callback) => {
-  db.get(`SELECT value FROM localStorage WHERE key = ?`, [key], (err, row) => {
-    if (err) {
-      console.error("Error getting item", err.message);
-      callback(null);
-    } else {
-      callback(row ? row.value : null);
+const getItems = (offset, limit, callback) => {
+  db.all(
+    `SELECT email, projectName, page FROM localStorage LIMIT ? OFFSET ?`,
+    [limit, offset],
+    (err, rows) => {
+      if (err) {
+        console.error("Error getting items", err.message);
+        callback([]);
+      } else {
+        callback(rows);
+      }
     }
-  });
+  );
 };
 
 const resetStorage = () => {
@@ -45,4 +51,4 @@ const resetStorage = () => {
   });
 };
 
-module.exports = { setItem, getItem, resetStorage };
+module.exports = { setItem, getItems, resetStorage };
