@@ -1,6 +1,6 @@
 # Email Scraper
 
-![Email Scraper Interface](public/example.png)
+![Email Scraper Interface](https://raw.githubusercontent.com/cmiley1/email-scraper/master/public/example.png)
 
 A tool for retrieving GitHub users' email addresses from repository dependencies.
 
