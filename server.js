@@ -15,7 +15,7 @@ const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const dbPath = path.resolve(__dirname, "database.sqlite");
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
-    console.error("Error opening database", err.message);
+    console.error("Error opening database:", err.message);
   } else {
     console.log("Connected to the SQLite database.");
     db.run(`CREATE TABLE IF NOT EXISTS localStorage (
@@ -33,7 +33,7 @@ const setItem = (key, email, projectName, page) => {
     [key, email, projectName, page],
     (err) => {
       if (err) {
-        console.error("Error setting item", err.message);
+        console.error("Error setting item:", err.message);
       }
     }
   );
@@ -45,7 +45,7 @@ const getItems = (offset, limit, callback) => {
     [limit, offset],
     (err, rows) => {
       if (err) {
-        console.error("Error getting items", err.message);
+        console.error("Error getting items:", err.message);
         callback([]);
       } else {
         callback(rows);
@@ -57,7 +57,7 @@ const getItems = (offset, limit, callback) => {
 const resetStorage = () => {
   db.run(`DELETE FROM localStorage`, (err) => {
     if (err) {
-      console.error("Error resetting storage", err.message);
+      console.error("Error resetting storage:", err.message);
     }
   });
 };
@@ -74,7 +74,6 @@ const fetchDependentsFromPage = async (url) => {
     const $ = cheerio.load(data);
     const dependents = [];
 
-    // Parsing the dependent repositories
     $("div.Box-row").each((i, element) => {
       const repoLink = $(element)
         .find("a[data-hovercard-type='repository']")
@@ -85,7 +84,6 @@ const fetchDependentsFromPage = async (url) => {
       }
     });
 
-    // Find the next page link
     const nextPageLink = $("a.next_page").attr("href");
 
     return { dependents, nextPageLink };
@@ -196,17 +194,15 @@ app.post("/fetch_dependents_emails", async (req, res) => {
       }
     }
 
-    // Remove duplicate emails
     const uniqueEmails = Array.from(new Set(allEmails.map((e) => e.email))).map(
       (email) => {
         return allEmails.find((e) => e.email === email);
       }
     );
 
-    // Save emails to the database
     uniqueEmails.forEach((emailObj, index) => {
       const key = `${emailObj.email}_${emailObj.projectName}_${index}`;
-      setItem(key, emailObj.email, emailObj.projectName, 1); // Assuming page as 1 for simplicity
+      setItem(key, emailObj.email, emailObj.projectName, 1);
     });
 
     res.json({ emails: uniqueEmails });
@@ -220,11 +216,26 @@ app.post("/fetch_dependents_emails", async (req, res) => {
 
 app.get("/emails", (req, res) => {
   const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 10;
+  const limit = parseInt(req.query.limit) || 25;
   const offset = (page - 1) * limit;
 
   getItems(offset, limit, (items) => {
     res.json({ emails: items });
+  });
+});
+
+app.get("/all_emails", (req, res) => {
+  console.log("Received request to fetch all emails");
+  db.all(`SELECT email, projectName, page FROM localStorage`, (err, rows) => {
+    if (err) {
+      console.error("Error getting all emails:", err.message);
+      res
+        .status(500)
+        .json({ message: `Failed to fetch all emails: ${err.message}` });
+    } else {
+      console.log("Fetched all emails successfully", rows);
+      res.json({ emails: rows });
+    }
   });
 });
 

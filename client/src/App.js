@@ -9,17 +9,34 @@ function App() {
   const [error, setError] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(false);
 
   const fetchEmails = async (page = 1) => {
+    setLoading(true);
     try {
       const response = await axios.get(
         `http://localhost:5003/emails?page=${page}&limit=10`
       );
       setEmails(response.data.emails);
-      setTotalPages(Math.ceil(response.data.total / 10));
+      setTotalPages(Math.ceil(response.data.total / 25));
+      setLoading(false);
     } catch (error) {
       console.error("Error fetching emails:", error);
       setError(error);
+      setLoading(false);
+    }
+  };
+
+  const fetchAllEmails = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get("http://localhost:5003/all_emails");
+      setEmails(response.data.emails);
+      setLoading(false);
+    } catch (error) {
+      console.error("Error fetching all emails:", error);
+      setError(error);
+      setLoading(false);
     }
   };
 
@@ -28,6 +45,7 @@ function App() {
   }, []);
 
   const fetchDependentEmails = async () => {
+    setLoading(true);
     try {
       const response = await axios.post(
         "http://localhost:5003/fetch_dependents_emails",
@@ -35,9 +53,11 @@ function App() {
       );
       setEmails(response.data.emails);
       setError(null);
+      setLoading(false);
     } catch (error) {
       console.error("Error fetching dependent emails:", error);
       setError(error);
+      setLoading(false);
     }
   };
 
@@ -78,8 +98,8 @@ function App() {
         <button type="submit">Run</button>
       </form>
       {error && <p style={{ color: "red" }}>Error: {error.message}</p>}
-      <h2>Emails</h2>
-      <DependentList emails={emails} />
+      <button onClick={fetchAllEmails}>Get All Stored Emails</button>
+      {loading ? <p>Loading...</p> : <DependentList emails={emails} />}
       <div>
         <button
           disabled={currentPage === 1}
