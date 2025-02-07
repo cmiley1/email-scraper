@@ -1,5 +1,7 @@
 # Email Scraper
 
+![Email Scraper Interface](public/example.png)
+
 A tool for retrieving GitHub users' email addresses from repository dependencies.
 
 ## Prerequisites
